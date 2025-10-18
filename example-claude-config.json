@@ -1,0 +1,49 @@
+{
+  "mcpServers": {
+    "typescript-project": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/mcp-language-server/typescript/dist/index.js",
+        "--workspace",
+        "/path/to/your/typescript/project",
+        "--lsp",
+        "typescript-language-server",
+        "--",
+        "--stdio"
+      ],
+      "env": {
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    "python-project": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/mcp-language-server/typescript/dist/index.js",
+        "--workspace",
+        "/path/to/your/python/project",
+        "--lsp",
+        "pyright-langserver",
+        "--",
+        "--stdio"
+      ],
+      "env": {
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    "go-project": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/mcp-language-server/typescript/dist/index.js",
+        "--workspace",
+        "/path/to/your/go/project",
+        "--lsp",
+        "gopls"
+      ],
+      "env": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/local/go/bin:${HOME}/go/bin",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
+

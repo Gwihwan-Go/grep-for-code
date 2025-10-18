@@ -1,0 +1,13 @@
+{
+  "name": "test-workspace",
+  "version": "1.0.0",
+  "description": "Test workspace for MCP Language Server",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT"
+}
+
