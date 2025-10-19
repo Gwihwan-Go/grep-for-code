@@ -18,6 +18,8 @@ export async function readDefinition(
   client: LSPClient,
   symbolName: string
 ): Promise<string> {
+  // Query symbols (caching is now handled in methods.ts)
+  toolsLogger.debug('Querying for symbols: %s', symbolName);
   const symbolResult = await symbol(client, { query: symbolName } as WorkspaceSymbolParams);
   const results = symbolResult.results();
 

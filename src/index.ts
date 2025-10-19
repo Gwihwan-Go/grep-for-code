@@ -362,8 +362,18 @@ class MCPLanguageServer {
     // Change to workspace directory
     process.chdir(this.config.workspaceDir);
 
-    // Create LSP client
-    this.lspClient = new LSPClient(this.config.lspCommand, this.config.lspArgs);
+    // Parse cache configuration from environment
+    const cacheConfig = {
+      enabled: process.env.CACHE_ENABLED !== 'false', // Enabled by default
+      maxSymbolCacheSize: parseInt(process.env.CACHE_MAX_SYMBOLS || '1000', 10),
+      maxLocationCacheSize: parseInt(process.env.CACHE_MAX_LOCATIONS || '500', 10),
+      ttlSeconds: process.env.CACHE_TTL_SECONDS 
+        ? parseInt(process.env.CACHE_TTL_SECONDS, 10) 
+        : undefined,
+    };
+
+    // Create LSP client with cache config
+    this.lspClient = new LSPClient(this.config.lspCommand, this.config.lspArgs, cacheConfig);
 
     // Initialize LSP
     const initResult = await this.lspClient.initialize(this.config.workspaceDir);
@@ -378,6 +388,9 @@ class MCPLanguageServer {
     // Wait for server to be ready
     await this.lspClient.waitForServerReady();
 
+    // Warm up cache with workspace symbols (if enabled)
+    await this.warmupCache();
+
     // Setup signal handlers
     this.setupSignalHandlers();
 
@@ -386,6 +399,119 @@ class MCPLanguageServer {
     await this.server.connect(transport);
 
     coreLogger.info('MCP Language Server running');
+  }
+
+  /**
+   * Warm up the cache by preloading workspace symbols
+   */
+  private async warmupCache(): Promise<void> {
+    if (!this.lspClient) {
+      return;
+    }
+
+    // Check if cache warming is enabled (default: true)
+    const warmupEnabled = process.env.CACHE_WARMUP !== 'false';
+    if (!warmupEnabled) {
+      coreLogger.info('Cache warmup disabled');
+      return;
+    }
+
+    coreLogger.info('Warming up cache with workspace symbols...');
+    const startTime = Date.now();
+
+    try {
+      // Import symbol function
+      const { symbol } = await import('./lsp/methods.js');
+      
+      // Find and open a sample file to help LSP index the project
+      // Some LSP servers (like TypeScript) require at least one file to be open
+      const sampleFile = this.findSampleFile();
+      if (sampleFile) {
+        try {
+          await this.lspClient.openFile(sampleFile);
+          coreLogger.debug('Opened sample file for warmup: %s', sampleFile);
+        } catch (err) {
+          coreLogger.debug('Could not open sample file: %s', (err as Error).message);
+        }
+      }
+      
+      // Query for common patterns to warm up the cache
+      // Different LSP servers handle symbol queries differently:
+      // - Go (gopls): Returns all symbols for empty query
+      // - TypeScript: Requires files to be open, may return partial results
+      // - Python (pyright): Returns symbols based on opened files
+      
+      const warmupQueries = [
+        '', // Some servers return all symbols
+        // Skip single letters - they often fail or return too many results
+      ];
+
+      let totalSymbols = 0;
+      let successfulQueries = 0;
+      
+      for (const query of warmupQueries) {
+        try {
+          const result = await symbol(this.lspClient, { query });
+          const symbols = result.results();
+          
+          if (symbols.length > 0) {
+            totalSymbols += symbols.length;
+            successfulQueries++;
+            coreLogger.debug('Cached %d symbols for query: "%s"', symbols.length, query);
+          }
+        } catch (err) {
+          // Ignore errors during warmup - not critical
+          // Some LSP servers don't support workspace symbols without files open
+          coreLogger.debug('Warmup query "%s" failed: %s', query, (err as Error).message);
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      
+      if (successfulQueries > 0) {
+        coreLogger.info('Cache warmup complete: %d symbols cached in %dms', totalSymbols, duration);
+        
+        // Log cache statistics
+        const cacheManager = this.lspClient.getCacheManager();
+        const stats = cacheManager.getStats();
+        coreLogger.debug('Cache stats after warmup: symbols=%d', stats.workspaceSymbols);
+      } else {
+        coreLogger.info('Cache warmup skipped: LSP server may require files to be opened first (took %dms)', duration);
+        coreLogger.debug('This is normal for TypeScript/JavaScript LSP servers');
+      }
+    } catch (err) {
+      coreLogger.debug('Cache warmup encountered error (non-critical): %s', (err as Error).message);
+    }
+  }
+
+  /**
+   * Find a sample file to open for cache warmup
+   */
+  private findSampleFile(): string | null {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      
+      // Try to find any source file in the workspace
+      const files = fs.readdirSync(this.config.workspaceDir);
+      
+      for (const file of files) {
+        const fullPath = path.join(this.config.workspaceDir, file);
+        const stat = fs.statSync(fullPath);
+        
+        if (stat.isFile()) {
+          // Check if it's a source file
+          const ext = path.extname(file).toLowerCase();
+          if (['.ts', '.js', '.go', '.py', '.java', '.rs', '.cpp', '.c', '.cs'].includes(ext)) {
+            return fullPath;
+          }
+        }
+      }
+      
+      return null;
+    } catch (err) {
+      return null;
+    }
   }
 
   /**

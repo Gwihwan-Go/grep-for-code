@@ -31,6 +31,7 @@ import {
   ClientCapabilities,
 } from '../protocol/types.js';
 import { pathToUri, uriToPath } from '../protocol/uri.js';
+import { LSPCacheManager, CacheConfig } from '../cache/manager.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -88,8 +89,11 @@ export class LSPClient {
   private notificationHandlers = new Map<string, NotificationHandler>();
   private diagnostics = new Map<string, Diagnostic[]>();
   private openFiles = new Map<string, OpenFileInfo>();
+  private cacheManager: LSPCacheManager;
 
-  constructor(command: string, args: string[] = []) {
+  constructor(command: string, args: string[] = [], cacheConfig?: Partial<CacheConfig>) {
+    // Initialize cache manager
+    this.cacheManager = new LSPCacheManager(cacheConfig);
     lspLogger.info('Starting LSP server: %s %s', command, args.join(' '));
 
     this.process = spawn(command, args, {
@@ -266,6 +270,9 @@ export class LSPClient {
     if (!fileInfo) {
       throw new Error(`Cannot notify change for unopened file: ${filePath}`);
     }
+
+    // Invalidate cache for this file
+    this.cacheManager.invalidateFile(filePath);
 
     // Read updated content
     const content = await fs.promises.readFile(filePath, 'utf8');
@@ -617,6 +624,10 @@ export class LSPClient {
     const diagnostics = params.diagnostics || [];
     this.diagnostics.set(params.uri, diagnostics);
 
+    // Also cache diagnostics
+    const filePath = uriToPath(params.uri);
+    this.cacheManager.setDiagnostics(filePath, diagnostics);
+
     if (diagnostics.length > 0) {
       lspLogger.debug('Received %d diagnostics for %s', diagnostics.length, params.uri);
     }
@@ -626,7 +637,22 @@ export class LSPClient {
    * Send didChangeWatchedFiles notification
    */
   async didChangeWatchedFiles(params: DidChangeWatchedFilesParams): Promise<void> {
+    // Invalidate cache for changed files
+    if (params.changes) {
+      for (const change of params.changes) {
+        const filePath = uriToPath(change.uri);
+        this.cacheManager.invalidateFile(filePath);
+      }
+    }
+
     await this.notify('workspace/didChangeWatchedFiles', params);
+  }
+
+  /**
+   * Get the cache manager (for use by tools)
+   */
+  getCacheManager(): LSPCacheManager {
+    return this.cacheManager;
   }
 }
 

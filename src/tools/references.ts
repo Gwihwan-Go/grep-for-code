@@ -34,7 +34,8 @@ export async function findReferences(
   // Get context lines from environment variable
   const contextLines = parseInt(process.env.LSP_CONTEXT_LINES || '5', 10);
 
-  // First get the symbol location
+  // First get the symbol location (caching is now handled in methods.ts)
+  toolsLogger.debug('Querying for symbols: %s', symbolName);
   const symbolResult = await symbol(client, { query: symbolName } as WorkspaceSymbolParams);
   const results = symbolResult.results();
 
